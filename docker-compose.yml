@@ -1,0 +1,28 @@
+services:
+  kiro-rs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kiro-rs:local
+    container_name: kiro-rs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8990:8990"
+    volumes:
+      - ./config/:/app/config/
+    restart: unless-stopped
+
+  kiro-rs-8992:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kiro-rs:local
+    container_name: kiro-rs-8992
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8992:8992"
+    volumes:
+      - ./config-8992/:/app/config/
+    restart: unless-stopped

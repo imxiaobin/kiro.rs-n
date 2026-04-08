@@ -1,0 +1,12 @@
+{
+  "host": "127.0.0.1",
+  "port": 8990,
+  "apiKey": "sk-kiro-rs-qazWSXedcRFV123456",
+  "tlsBackend": "rustls",
+  "region": "us-east-1",
+  "adminApiKey": "sk-admin-your-secret-key",
+  "loadBalancingMode": "proxy_pair_rotation",
+  "proxyPairRotationIntervalMinutes": 60,
+  "proxyPairRotationGroupSize": 2,
+  "proxyPairRotationProxyRounds": [["美国代理-圣何塞", "美国代理-盐湖城"], ["美国随机1", "美国随机2"]]
+}

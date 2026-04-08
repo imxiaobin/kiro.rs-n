@@ -1,0 +1,11 @@
+ => [kiro-rs-8992 frontend-builder 5/6] COPY admin-ui ./                                   0.0s
+ => ERROR [kiro-rs-8992 frontend-builder 6/6] RUN pnpm build                               5.3s
+------                                                                                          
+ > [kiro-rs-8992 frontend-builder 6/6] RUN pnpm build:                                          
+0.599                                                                                           
+0.599 > kiro-admin-ui@1.0.0 build /app/admin-ui                                                 
+0.599 > tsc -b && vite build
+0.599 
+5.185 src/components/ui/select.tsx(2,34): error TS2307: Cannot find module '@radix-ui/react-select' or its corresponding type declarations.
+5.231  ELIFECYCLE  Command failed with exit code 1.
+------

@@ -1,0 +1,422 @@
+{
+  "50": {
+    "cached_at": 1775627625.0,
+    "data": {
+      "id": 50,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 4.1,
+      "usageLimit": 550.0,
+      "remaining": 545.9,
+      "usagePercentage": 0.7454545454545454,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "75": {
+    "cached_at": 1775627677.0,
+    "data": {
+      "id": 75,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "53": {
+    "cached_at": 1775627629.0,
+    "data": {
+      "id": 53,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "47": {
+    "cached_at": 1775627622.0,
+    "data": {
+      "id": 47,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 8.28,
+      "usageLimit": 550.0,
+      "remaining": 541.72,
+      "usagePercentage": 1.5054545454545454,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "67": {
+    "cached_at": 1775627658.0,
+    "data": {
+      "id": 67,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "80": {
+    "cached_at": 1775627688.0,
+    "data": {
+      "id": 80,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "52": {
+    "cached_at": 1775627627.0,
+    "data": {
+      "id": 52,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 4.14,
+      "usageLimit": 550.0,
+      "remaining": 545.86,
+      "usagePercentage": 0.7527272727272727,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "46": {
+    "cached_at": 1775627620.0,
+    "data": {
+      "id": 46,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 3.29,
+      "usageLimit": 550.0,
+      "remaining": 546.71,
+      "usagePercentage": 0.5981818181818181,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "57": {
+    "cached_at": 1775627636.0,
+    "data": {
+      "id": 57,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "73": {
+    "cached_at": 1775627672.0,
+    "data": {
+      "id": 73,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "58": {
+    "cached_at": 1775627638.0,
+    "data": {
+      "id": 58,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "70": {
+    "cached_at": 1775627665.0,
+    "data": {
+      "id": 70,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "51": {
+    "cached_at": 1775627626.0,
+    "data": {
+      "id": 51,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 2.08,
+      "usageLimit": 550.0,
+      "remaining": 547.92,
+      "usagePercentage": 0.3781818181818182,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "54": {
+    "cached_at": 1775627630.0,
+    "data": {
+      "id": 54,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 1.97,
+      "usageLimit": 550.0,
+      "remaining": 548.03,
+      "usagePercentage": 0.35818181818181816,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "79": {
+    "cached_at": 1775627685.0,
+    "data": {
+      "id": 79,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "71": {
+    "cached_at": 1775627668.0,
+    "data": {
+      "id": 71,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "49": {
+    "cached_at": 1775627624.0,
+    "data": {
+      "id": 49,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 9.03,
+      "usageLimit": 550.0,
+      "remaining": 540.97,
+      "usagePercentage": 1.6418181818181818,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "64": {
+    "cached_at": 1775627651.0,
+    "data": {
+      "id": 64,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "78": {
+    "cached_at": 1775627684.0,
+    "data": {
+      "id": 78,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "76": {
+    "cached_at": 1775627679.0,
+    "data": {
+      "id": 76,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "65": {
+    "cached_at": 1775627654.0,
+    "data": {
+      "id": 65,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "68": {
+    "cached_at": 1775627661.0,
+    "data": {
+      "id": 68,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "63": {
+    "cached_at": 1775627649.0,
+    "data": {
+      "id": 63,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "48": {
+    "cached_at": 1775627622.0,
+    "data": {
+      "id": 48,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 7.94,
+      "usageLimit": 550.0,
+      "remaining": 542.06,
+      "usagePercentage": 1.4436363636363638,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "66": {
+    "cached_at": 1775627656.0,
+    "data": {
+      "id": 66,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "56": {
+    "cached_at": 1775627633.0,
+    "data": {
+      "id": 56,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "61": {
+    "cached_at": 1775627645.0,
+    "data": {
+      "id": 61,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "74": {
+    "cached_at": 1775627675.0,
+    "data": {
+      "id": 74,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "77": {
+    "cached_at": 1775627681.0,
+    "data": {
+      "id": 77,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "55": {
+    "cached_at": 1775627631.0,
+    "data": {
+      "id": 55,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.95,
+      "usageLimit": 550.0,
+      "remaining": 549.05,
+      "usagePercentage": 0.17272727272727273,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "60": {
+    "cached_at": 1775627643.0,
+    "data": {
+      "id": 60,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "59": {
+    "cached_at": 1775627640.0,
+    "data": {
+      "id": 59,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "72": {
+    "cached_at": 1775627670.0,
+    "data": {
+      "id": 72,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "69": {
+    "cached_at": 1775627663.0,
+    "data": {
+      "id": 69,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  },
+  "62": {
+    "cached_at": 1775627647.0,
+    "data": {
+      "id": 62,
+      "subscriptionTitle": "KIRO FREE",
+      "currentUsage": 0.0,
+      "usageLimit": 550.0,
+      "remaining": 550.0,
+      "usagePercentage": 0.0,
+      "nextResetAt": 1777593600.0
+    }
+  }
+}
