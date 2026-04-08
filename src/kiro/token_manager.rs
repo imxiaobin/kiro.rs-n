@@ -12,6 +12,7 @@ use tokio::sync::Mutex as TokioMutex;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration as StdDuration, Instant};
 
@@ -544,7 +545,7 @@ pub struct MultiTokenManager {
 }
 
 /// 每个凭据最大 API 调用失败次数
-const MAX_FAILURES_PER_CREDENTIAL: u32 = 3;
+const MAX_FAILURES_PER_CREDENTIAL: u32 = 1;
 /// 统计数据持久化防抖间隔
 const STATS_SAVE_DEBOUNCE: StdDuration = StdDuration::from_secs(30);
 /// 负载均衡模式：按优先级
@@ -1315,6 +1316,8 @@ impl MultiTokenManager {
 
         loop {
             let mode = self.load_balancing_mode.lock().clone();
+            let is_proxy_pair_rotation_mode =
+                mode.as_str() == LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION;
             let is_dynamic_mode = matches!(
                 mode.as_str(),
                 LOAD_BALANCING_MODE_BALANCED | LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION
@@ -1352,7 +1355,8 @@ impl MultiTokenManager {
                     };
 
                     // 没有可用凭据：如果是"自动禁用导致全灭"，做一次类似重启的自愈
-                    if best.is_none() {
+                    // 但在 proxy_pair_rotation 模式下禁用该机制，避免破坏轮换策略的故障隔离
+                    if best.is_none() && !is_proxy_pair_rotation_mode {
                         let mut entries = self.entries.lock();
                         if entries.iter().any(|e| {
                             e.disabled
@@ -1797,6 +1801,112 @@ impl MultiTokenManager {
         };
         self.save_stats_debounced();
         result
+    }
+
+    fn has_available_credentials(&self) -> bool {
+        let entries = self.entries.lock();
+        entries.iter().any(|e| !e.disabled)
+    }
+
+    fn is_disabled_by_too_many_failures(&self, id: u64) -> bool {
+        let entries = self.entries.lock();
+        entries
+            .iter()
+            .find(|e| e.id == id)
+            .is_some_and(|e| {
+                e.disabled && e.disabled_reason == Some(DisabledReason::TooManyFailures)
+            })
+    }
+
+    fn advance_proxy_pair_rotation_round_now(&self) {
+        if self.get_load_balancing_mode() != LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION {
+            return;
+        }
+
+        let interval_secs = self
+            .current_proxy_pair_rotation_interval_minutes()
+            .saturating_mul(60)
+            .max(60);
+        let interval = StdDuration::from_secs(interval_secs);
+
+        {
+            let mut started_at = self.pair_rotation_started_at.lock();
+            if let Some(next_started_at) = (*started_at).checked_sub(interval) {
+                *started_at = next_started_at;
+            }
+        }
+        *self.proxy_pair_rotation_rr_cursor.lock() = 0;
+    }
+
+    /// 在代理轮换模式下报告失败并执行额外处理：
+    /// 1. 失败达到阈值禁用后，立即切换到下一轮；
+    /// 2. 对上一轮的活跃账号在后台异步逐个做余额探测，探测失败则禁用。
+    ///    探测在独立 tokio 任务中运行，不阻塞调用方的请求重试。
+    ///
+    /// 返回是否仍有可用凭据。
+    pub fn report_failure_with_proxy_round_failover(self: Arc<Self>, id: u64) -> bool {
+        let is_proxy_pair_rotation =
+            self.get_load_balancing_mode() == LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION;
+        let previous_round_ids = if is_proxy_pair_rotation {
+            self.current_proxy_pair_rotation_pool_ids()
+        } else {
+            Vec::new()
+        };
+
+        let has_available = self.report_failure(id);
+        if !is_proxy_pair_rotation {
+            return has_available;
+        }
+
+        if !self.is_disabled_by_too_many_failures(id) {
+            return has_available;
+        }
+
+        self.advance_proxy_pair_rotation_round_now();
+        let next_round_ids = self.current_proxy_pair_rotation_pool_ids();
+        tracing::warn!(
+            "代理轮换模式：凭据 #{} 失败后立即切轮，轮次池 {:?} -> {:?}",
+            id,
+            previous_round_ids,
+            next_round_ids
+        );
+
+        let probe_ids: Vec<u64> = {
+            let entries = self.entries.lock();
+            previous_round_ids
+                .into_iter()
+                .filter(|probe_id| *probe_id != id)
+                .filter(|probe_id| {
+                    entries
+                        .iter()
+                        .find(|entry| entry.id == *probe_id)
+                        .is_some_and(|entry| !entry.disabled)
+                })
+                .collect()
+        };
+
+        if !probe_ids.is_empty() {
+            let manager = Arc::clone(&self);
+            tokio::spawn(async move {
+                for probe_id in probe_ids {
+                    match manager.get_usage_limits_for(probe_id).await {
+                        Ok(_) => {
+                            tracing::info!("代理轮换模式：凭据 #{} 余额探测通过", probe_id);
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                "代理轮换模式：凭据 #{} 余额探测失败，执行禁用: {}",
+                                probe_id,
+                                err
+                            );
+                            let _ = manager.report_failure(probe_id);
+                        }
+                    }
+                }
+            });
+        }
+
+        self.has_available_credentials()
     }
 
     /// 报告指定凭据额度已用尽
@@ -2870,18 +2980,11 @@ mod tests {
             MultiTokenManager::new(config, vec![cred1, cred2], None, None, false).unwrap();
 
         // 凭据会自动分配 ID（从 1 开始）
-        // 前两次失败不会禁用（使用 ID 1）
-        assert!(manager.report_failure(1));
-        assert!(manager.report_failure(1));
-        assert_eq!(manager.available_count(), 2);
-
-        // 第三次失败会禁用第一个凭据
+        // 第一次失败即禁用第一个凭据（使用 ID 1）
         assert!(manager.report_failure(1));
         assert_eq!(manager.available_count(), 1);
 
-        // 继续失败第二个凭据（使用 ID 2）
-        assert!(manager.report_failure(2));
-        assert!(manager.report_failure(2));
+        // 继续失败第二个凭据（使用 ID 2），将导致全部禁用
         assert!(!manager.report_failure(2)); // 所有凭据都禁用了
         assert_eq!(manager.available_count(), 0);
     }
@@ -2893,17 +2996,20 @@ mod tests {
 
         let manager = MultiTokenManager::new(config, vec![cred], None, None, false).unwrap();
 
-        // 失败两次（使用 ID 1）
+        // 第一次失败即会禁用（使用 ID 1）
         manager.report_failure(1);
-        manager.report_failure(1);
+        let snapshot_after_failure = manager.snapshot();
+        let entry_after_failure = snapshot_after_failure.entries.first().unwrap();
+        assert_eq!(entry_after_failure.failure_count, MAX_FAILURES_PER_CREDENTIAL);
+        assert!(entry_after_failure.disabled);
 
-        // 成功后重置计数（使用 ID 1）
+        // 成功后会重置失败计数，但不会自动重新启用
         manager.report_success(1);
-
-        // 再失败两次不会禁用
-        manager.report_failure(1);
-        manager.report_failure(1);
-        assert_eq!(manager.available_count(), 1);
+        let snapshot_after_success = manager.snapshot();
+        let entry_after_success = snapshot_after_success.entries.first().unwrap();
+        assert_eq!(entry_after_success.failure_count, 0);
+        assert!(entry_after_success.disabled);
+        assert_eq!(manager.available_count(), 0);
     }
 
     #[test]
@@ -3379,6 +3485,95 @@ mod tests {
         let ctx = manager.acquire_context(None).await.unwrap();
         assert!(ctx.token == "t1" || ctx.token == "t2");
         assert_eq!(manager.available_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_pair_rotation_does_not_auto_recover_all_disabled() {
+        let mut config = Config::default();
+        config.load_balancing_mode = LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION.to_string();
+
+        let mut cred1 = KiroCredentials::default();
+        cred1.access_token = Some("t1".to_string());
+        cred1.expires_at = Some((Utc::now() + Duration::hours(1)).to_rfc3339());
+        let mut cred2 = KiroCredentials::default();
+        cred2.access_token = Some("t2".to_string());
+        cred2.expires_at = Some((Utc::now() + Duration::hours(1)).to_rfc3339());
+
+        let manager =
+            MultiTokenManager::new(config, vec![cred1, cred2], None, None, false).unwrap();
+
+        for _ in 0..MAX_FAILURES_PER_CREDENTIAL {
+            manager.report_failure(1);
+        }
+        for _ in 0..MAX_FAILURES_PER_CREDENTIAL {
+            manager.report_failure(2);
+        }
+
+        assert_eq!(manager.available_count(), 0);
+
+        let err = manager.acquire_context(None).await.err().unwrap().to_string();
+        assert!(
+            err.contains("所有凭据均已禁用"),
+            "错误应提示所有凭据禁用，实际: {}",
+            err
+        );
+        assert_eq!(manager.available_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_proxy_pair_rotation_failure_rotates_round_and_disables_failed_probes() {
+        let mut config = Config::default();
+        config.load_balancing_mode = LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION.to_string();
+        config.proxy_pair_rotation_group_size = 2;
+
+        let build_credential = |priority: u32, proxy_port: u16| {
+            let mut cred = KiroCredentials::default();
+            cred.priority = priority;
+            cred.proxy_url = Some(format!("http://127.0.0.1:{}", proxy_port));
+            cred
+        };
+
+        let manager = Arc::new(
+            MultiTokenManager::new(
+                config,
+                vec![
+                    build_credential(0, 8001),
+                    build_credential(1, 8002),
+                    build_credential(2, 8003),
+                    build_credential(3, 8004),
+                ],
+                None,
+                None,
+                false,
+            )
+            .unwrap(),
+        );
+
+        // 初始活跃轮次应为第一轮（ID 1,2）
+        assert_eq!(manager.current_proxy_pair_rotation_pool_ids(), vec![1, 2]);
+
+        // 探测在后台任务运行，report_failure_with_proxy_round_failover 本身已不是 async
+        let has_available = Arc::clone(&manager).report_failure_with_proxy_round_failover(1);
+        assert!(has_available);
+
+        // 失败后应立即切换到下一轮（ID 3,4）
+        assert_eq!(manager.current_proxy_pair_rotation_pool_ids(), vec![3, 4]);
+
+        // 等待后台探测任务完成（127.0.0.1:800x 无服务，连接立即被拒绝）
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // 第一轮中失败账号（1）和余额探测失败账号（2）均应被禁用
+        let snapshot = manager.snapshot();
+        let entry1 = snapshot.entries.iter().find(|entry| entry.id == 1).unwrap();
+        let entry2 = snapshot.entries.iter().find(|entry| entry.id == 2).unwrap();
+        let entry3 = snapshot.entries.iter().find(|entry| entry.id == 3).unwrap();
+        let entry4 = snapshot.entries.iter().find(|entry| entry.id == 4).unwrap();
+
+        assert!(entry1.disabled);
+        assert!(entry2.disabled);
+        assert!(!entry3.disabled);
+        assert!(!entry4.disabled);
+        assert_eq!(snapshot.available, 2);
     }
 
     #[test]

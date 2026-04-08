@@ -367,7 +367,8 @@ impl KiroProvider {
 
             // 401/403 凭据问题
             if matches!(status.as_u16(), 401 | 403) {
-                let has_available = self.token_manager.report_failure(ctx.id);
+                let has_available = Arc::clone(&self.token_manager)
+                    .report_failure_with_proxy_round_failover(ctx.id);
                 if !has_available {
                     anyhow::bail!("MCP 请求失败（所有凭据已用尽）: {} {}", status, body);
                 }
@@ -528,7 +529,8 @@ impl KiroProvider {
                     body
                 );
 
-                let has_available = self.token_manager.report_failure(ctx.id);
+                let has_available = Arc::clone(&self.token_manager)
+                    .report_failure_with_proxy_round_failover(ctx.id);
                 if !has_available {
                     anyhow::bail!(
                         "{} API 请求失败（所有凭据已用尽）: {} {}",

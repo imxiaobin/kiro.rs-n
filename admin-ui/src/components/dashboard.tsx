@@ -386,12 +386,44 @@ export function Dashboard({ onLogout }: DashboardProps) {
     }
 
     if (presets.length === 0) {
-      toast.error('暂无可用代理预设，请先在“代理预设”中添加')
+      toast.error('暂无可用代理预设，请先在”代理预设”中添加')
       return
     }
 
+    // 统计各预设现有账号数，贪心分配：每次把账号给当前数量最少的预设
+    const presetCounts = new Map<string, number>(presets.map(p => [p.name, 0]))
+    for (const credential of allCredentials) {
+      if (credential.proxyPresetName && presetCounts.has(credential.proxyPresetName)) {
+        presetCounts.set(credential.proxyPresetName, (presetCounts.get(credential.proxyPresetName) ?? 0) + 1)
+      }
+    }
+
+    const assignments: Array<{ credential: typeof targets[0]; preset: typeof presets[0] }> = []
+    for (const credential of targets) {
+      let minIdx = 0
+      let minCount = presetCounts.get(presets[0].name) ?? 0
+      for (let i = 1; i < presets.length; i++) {
+        const count = presetCounts.get(presets[i].name) ?? 0
+        if (count < minCount) {
+          minCount = count
+          minIdx = i
+        }
+      }
+      const selected = presets[minIdx]
+      assignments.push({ credential, preset: selected })
+      presetCounts.set(selected.name, minCount + 1)
+    }
+
+    const assignmentSummary = presets
+      .map(p => {
+        const added = assignments.filter(a => a.preset.name === p.name).length
+        return added > 0 ? `${p.name} +${added}` : null
+      })
+      .filter(Boolean)
+      .join('、')
+
     const shouldApply = confirm(
-      `将为 ${targets.length} 个未配置代理的账号按顺序分配 ${presets.length} 个代理预设（不足时循环使用），是否继续？`
+      `将为 ${targets.length} 个未配置代理的账号按各代理现有数量均匀分配（${assignmentSummary}），是否继续？`
     )
     if (!shouldApply) {
       return
@@ -404,8 +436,7 @@ export function Dashboard({ onLogout }: DashboardProps) {
     let firstError = ''
 
     try {
-      for (const [index, credential] of targets.entries()) {
-        const preset = presets[index % presets.length]
+      for (const { credential, preset } of assignments) {
         try {
           await setCredentialProxyConfig(credential.id, {
             proxyUrl: preset.proxyUrl,
