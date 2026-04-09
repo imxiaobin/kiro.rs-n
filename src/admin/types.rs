@@ -218,6 +218,12 @@ pub struct LoadBalancingModeResponse {
     pub proxy_pair_rotation_interval_minutes: u64,
     /// 代理轮换模式每轮账号数（仅未配置轮次代理时生效）
     pub proxy_pair_rotation_group_size: usize,
+    /// 全局最大并发请求数
+    pub max_global_concurrency: usize,
+    /// 全局并发等待队列长度
+    pub max_concurrency_queue_size: usize,
+    /// 全局并发排队超时（毫秒）
+    pub concurrency_queue_timeout_ms: u64,
     /// 代理轮换模式按代理预设名的自定义轮次（每个子数组是一轮的代理预设名列表）
     pub proxy_pair_rotation_proxy_rounds: Vec<Vec<String>>,
 }
@@ -232,6 +238,12 @@ pub struct SetLoadBalancingModeRequest {
     pub proxy_pair_rotation_interval_minutes: Option<u64>,
     /// 代理轮换模式每轮账号数（仅未配置轮次代理时生效）
     pub proxy_pair_rotation_group_size: Option<usize>,
+    /// 全局最大并发请求数
+    pub max_global_concurrency: Option<usize>,
+    /// 全局并发等待队列长度
+    pub max_concurrency_queue_size: Option<usize>,
+    /// 全局并发排队超时（毫秒）
+    pub concurrency_queue_timeout_ms: Option<u64>,
     /// 代理轮换模式按代理预设名的自定义轮次（每个子数组是一轮的代理预设名列表）
     pub proxy_pair_rotation_proxy_rounds: Option<Vec<Vec<String>>>,
 }

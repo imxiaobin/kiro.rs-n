@@ -8,12 +8,12 @@ use chrono::{DateTime, Duration, Utc};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::{Mutex as TokioMutex, OwnedSemaphorePermit, Semaphore};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration as StdDuration, Instant};
 
 use crate::http_client::{ProxyConfig, build_client};
@@ -507,6 +507,133 @@ pub struct EffectiveProxyInfo {
     pub proxy: Option<ProxyConfig>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlobalConcurrencyAcquireErrorKind {
+    QueueFull,
+    Timeout,
+}
+
+#[derive(Debug)]
+pub struct GlobalConcurrencyAcquireError {
+    kind: GlobalConcurrencyAcquireErrorKind,
+}
+
+impl GlobalConcurrencyAcquireError {
+    fn queue_full() -> Self {
+        Self {
+            kind: GlobalConcurrencyAcquireErrorKind::QueueFull,
+        }
+    }
+
+    fn timeout() -> Self {
+        Self {
+            kind: GlobalConcurrencyAcquireErrorKind::Timeout,
+        }
+    }
+
+    pub fn kind(&self) -> GlobalConcurrencyAcquireErrorKind {
+        self.kind
+    }
+}
+
+impl std::fmt::Display for GlobalConcurrencyAcquireError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            GlobalConcurrencyAcquireErrorKind::QueueFull => {
+                write!(f, "全局并发等待队列已满")
+            }
+            GlobalConcurrencyAcquireErrorKind::Timeout => {
+                write!(f, "全局并发排队超时")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GlobalConcurrencyAcquireError {}
+
+pub struct GlobalRequestPermit {
+    _permit: OwnedSemaphorePermit,
+}
+
+impl GlobalRequestPermit {
+    fn new(permit: OwnedSemaphorePermit) -> Self {
+        Self { _permit: permit }
+    }
+}
+
+struct QueueReservationGuard<'a> {
+    counter: &'a AtomicUsize,
+}
+
+impl<'a> QueueReservationGuard<'a> {
+    fn new(counter: &'a AtomicUsize) -> Self {
+        Self { counter }
+    }
+}
+
+impl Drop for QueueReservationGuard<'_> {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+struct GlobalRequestLimiter {
+    semaphore: Arc<Semaphore>,
+    queued_waiters: AtomicUsize,
+    max_queue_size: usize,
+    queue_timeout: StdDuration,
+}
+
+impl GlobalRequestLimiter {
+    fn new(max_concurrency: usize, max_queue_size: usize, queue_timeout_ms: u64) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(max_concurrency)),
+            queued_waiters: AtomicUsize::new(0),
+            max_queue_size,
+            queue_timeout: StdDuration::from_millis(queue_timeout_ms),
+        }
+    }
+
+    async fn acquire(&self) -> Result<GlobalRequestPermit, GlobalConcurrencyAcquireError> {
+        if let Ok(permit) = self.semaphore.clone().try_acquire_owned() {
+            return Ok(GlobalRequestPermit::new(permit));
+        }
+
+        if self.max_queue_size == 0 {
+            return Err(GlobalConcurrencyAcquireError::queue_full());
+        }
+
+        loop {
+            let current = self.queued_waiters.load(Ordering::Relaxed);
+            if current >= self.max_queue_size {
+                return Err(GlobalConcurrencyAcquireError::queue_full());
+            }
+
+            if self
+                .queued_waiters
+                .compare_exchange_weak(
+                    current,
+                    current + 1,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+            {
+                break;
+            }
+        }
+
+        let _queue_guard = QueueReservationGuard::new(&self.queued_waiters);
+
+        match tokio::time::timeout(self.queue_timeout, self.semaphore.clone().acquire_owned()).await
+        {
+            Ok(Ok(permit)) => Ok(GlobalRequestPermit::new(permit)),
+            Ok(Err(_)) => Err(GlobalConcurrencyAcquireError::queue_full()),
+            Err(_) => Err(GlobalConcurrencyAcquireError::timeout()),
+        }
+    }
+}
+
 /// 多凭据 Token 管理器
 ///
 /// 支持多个凭据的管理，实现固定优先级 + 故障转移策略
@@ -530,6 +657,12 @@ pub struct MultiTokenManager {
     proxy_pair_rotation_interval_minutes: Mutex<u64>,
     /// 代理轮换模式每轮账号数（未配置轮次代理时生效）
     proxy_pair_rotation_group_size: Mutex<usize>,
+    /// 全局最大并发请求数
+    max_global_concurrency: Mutex<usize>,
+    /// 全局并发等待队列长度
+    max_concurrency_queue_size: Mutex<usize>,
+    /// 全局并发排队超时（毫秒）
+    concurrency_queue_timeout_ms: Mutex<u64>,
     /// 代理轮换模式按代理预设名的自定义轮次
     proxy_pair_rotation_proxy_rounds: Mutex<Vec<Vec<String>>>,
     /// 代理轮换模式按代理签名解析后的自定义轮次（运行时使用）
@@ -542,6 +675,8 @@ pub struct MultiTokenManager {
     last_stats_save_at: Mutex<Option<Instant>>,
     /// 统计数据是否有未落盘更新
     stats_dirty: AtomicBool,
+    /// 全局请求并发限制器
+    global_request_limiter: Mutex<Arc<GlobalRequestLimiter>>,
 }
 
 /// 每个凭据最大 API 调用失败次数
@@ -721,6 +856,9 @@ impl MultiTokenManager {
         let load_balancing_mode = config.load_balancing_mode.clone();
         let proxy_pair_rotation_interval_minutes = config.proxy_pair_rotation_interval_minutes;
         let proxy_pair_rotation_group_size = config.proxy_pair_rotation_group_size;
+        let max_global_concurrency = config.max_global_concurrency;
+        let max_concurrency_queue_size = config.max_concurrency_queue_size;
+        let concurrency_queue_timeout_ms = config.concurrency_queue_timeout_ms;
         let proxy_pair_rotation_proxy_rounds = Self::normalize_proxy_pair_rotation_proxy_rounds(
             config.proxy_pair_rotation_proxy_rounds.clone(),
         );
@@ -739,12 +877,20 @@ impl MultiTokenManager {
             load_balancing_mode: Mutex::new(load_balancing_mode),
             proxy_pair_rotation_interval_minutes: Mutex::new(proxy_pair_rotation_interval_minutes),
             proxy_pair_rotation_group_size: Mutex::new(proxy_pair_rotation_group_size),
+            max_global_concurrency: Mutex::new(max_global_concurrency),
+            max_concurrency_queue_size: Mutex::new(max_concurrency_queue_size),
+            concurrency_queue_timeout_ms: Mutex::new(concurrency_queue_timeout_ms),
             proxy_pair_rotation_proxy_rounds: Mutex::new(proxy_pair_rotation_proxy_rounds),
             proxy_pair_rotation_proxy_round_keys: Mutex::new(proxy_pair_rotation_proxy_round_keys),
             pair_rotation_started_at: Mutex::new(Instant::now()),
             proxy_pair_rotation_rr_cursor: Mutex::new(0),
             last_stats_save_at: Mutex::new(None),
             stats_dirty: AtomicBool::new(false),
+            global_request_limiter: Mutex::new(Arc::new(GlobalRequestLimiter::new(
+                max_global_concurrency,
+                max_concurrency_queue_size,
+                concurrency_queue_timeout_ms,
+            ))),
         };
 
         // 如果有新分配的 ID 或新生成的 machineId，立即持久化到配置文件
@@ -765,6 +911,37 @@ impl MultiTokenManager {
     /// 获取配置的引用
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    fn current_max_global_concurrency(&self) -> usize {
+        *self.max_global_concurrency.lock()
+    }
+
+    fn current_max_concurrency_queue_size(&self) -> usize {
+        *self.max_concurrency_queue_size.lock()
+    }
+
+    fn current_concurrency_queue_timeout_ms(&self) -> u64 {
+        *self.concurrency_queue_timeout_ms.lock()
+    }
+
+    pub fn get_max_global_concurrency(&self) -> usize {
+        self.current_max_global_concurrency()
+    }
+
+    pub fn get_max_concurrency_queue_size(&self) -> usize {
+        self.current_max_concurrency_queue_size()
+    }
+
+    pub fn get_concurrency_queue_timeout_ms(&self) -> u64 {
+        self.current_concurrency_queue_timeout_ms()
+    }
+
+    pub async fn acquire_global_request_permit(
+        &self,
+    ) -> Result<GlobalRequestPermit, GlobalConcurrencyAcquireError> {
+        let limiter = self.global_request_limiter.lock().clone();
+        limiter.acquire().await
     }
 
     fn current_global_proxy(&self) -> Option<ProxyConfig> {
@@ -2574,6 +2751,9 @@ impl MultiTokenManager {
         mode: &str,
         proxy_pair_rotation_interval_minutes: u64,
         proxy_pair_rotation_group_size: usize,
+        max_global_concurrency: usize,
+        max_concurrency_queue_size: usize,
+        concurrency_queue_timeout_ms: u64,
         proxy_pair_rotation_proxy_rounds: &[Vec<String>],
     ) -> anyhow::Result<()> {
         use anyhow::Context;
@@ -2591,6 +2771,9 @@ impl MultiTokenManager {
         config.load_balancing_mode = mode.to_string();
         config.proxy_pair_rotation_interval_minutes = proxy_pair_rotation_interval_minutes;
         config.proxy_pair_rotation_group_size = proxy_pair_rotation_group_size;
+        config.max_global_concurrency = max_global_concurrency;
+        config.max_concurrency_queue_size = max_concurrency_queue_size;
+        config.concurrency_queue_timeout_ms = concurrency_queue_timeout_ms;
         config.proxy_pair_rotation_proxy_rounds = proxy_pair_rotation_proxy_rounds.to_vec();
         config
             .save()
@@ -2604,6 +2787,9 @@ impl MultiTokenManager {
         mode: String,
         proxy_pair_rotation_interval_minutes: u64,
         proxy_pair_rotation_group_size: usize,
+        max_global_concurrency: usize,
+        max_concurrency_queue_size: usize,
+        concurrency_queue_timeout_ms: u64,
         proxy_pair_rotation_proxy_rounds: Vec<Vec<String>>,
     ) -> anyhow::Result<()> {
         if mode != LOAD_BALANCING_MODE_PRIORITY
@@ -2619,6 +2805,14 @@ impl MultiTokenManager {
 
         if proxy_pair_rotation_group_size == 0 {
             anyhow::bail!("代理轮换每轮账号数必须大于 0");
+        }
+
+        if max_global_concurrency == 0 {
+            anyhow::bail!("全局最大并发必须大于 0");
+        }
+
+        if concurrency_queue_timeout_ms == 0 {
+            anyhow::bail!("并发排队超时必须大于 0 毫秒");
         }
 
         let normalized_proxy_rounds = Self::normalize_proxy_pair_rotation_proxy_rounds(
@@ -2646,14 +2840,21 @@ impl MultiTokenManager {
         let previous_mode = self.get_load_balancing_mode();
         let previous_interval_minutes = self.current_proxy_pair_rotation_interval_minutes();
         let previous_group_size = self.current_proxy_pair_rotation_group_size();
+        let previous_max_global_concurrency = self.current_max_global_concurrency();
+        let previous_max_concurrency_queue_size = self.current_max_concurrency_queue_size();
+        let previous_concurrency_queue_timeout_ms = self.current_concurrency_queue_timeout_ms();
         let previous_proxy_rounds = self.current_proxy_pair_rotation_proxy_rounds();
         let previous_proxy_round_keys = self.current_proxy_pair_rotation_proxy_round_keys();
         let previous_rotation_started_at = *self.pair_rotation_started_at.lock();
         let previous_rr_cursor = *self.proxy_pair_rotation_rr_cursor.lock();
+        let previous_global_request_limiter = self.global_request_limiter.lock().clone();
 
         if previous_mode == mode
             && previous_interval_minutes == proxy_pair_rotation_interval_minutes
             && previous_group_size == proxy_pair_rotation_group_size
+            && previous_max_global_concurrency == max_global_concurrency
+            && previous_max_concurrency_queue_size == max_concurrency_queue_size
+            && previous_concurrency_queue_timeout_ms == concurrency_queue_timeout_ms
             && previous_proxy_rounds == normalized_proxy_rounds
         {
             return Ok(());
@@ -2662,32 +2863,50 @@ impl MultiTokenManager {
         *self.load_balancing_mode.lock() = mode.clone();
         *self.proxy_pair_rotation_interval_minutes.lock() = proxy_pair_rotation_interval_minutes;
         *self.proxy_pair_rotation_group_size.lock() = proxy_pair_rotation_group_size;
+        *self.max_global_concurrency.lock() = max_global_concurrency;
+        *self.max_concurrency_queue_size.lock() = max_concurrency_queue_size;
+        *self.concurrency_queue_timeout_ms.lock() = concurrency_queue_timeout_ms;
         *self.proxy_pair_rotation_proxy_rounds.lock() = normalized_proxy_rounds.clone();
         *self.proxy_pair_rotation_proxy_round_keys.lock() = resolved_proxy_round_keys.clone();
         *self.pair_rotation_started_at.lock() = Instant::now();
         *self.proxy_pair_rotation_rr_cursor.lock() = 0;
+        *self.global_request_limiter.lock() = Arc::new(GlobalRequestLimiter::new(
+            max_global_concurrency,
+            max_concurrency_queue_size,
+            concurrency_queue_timeout_ms,
+        ));
 
         if let Err(err) = self.persist_load_balancing_settings(
             &mode,
             proxy_pair_rotation_interval_minutes,
             proxy_pair_rotation_group_size,
+            max_global_concurrency,
+            max_concurrency_queue_size,
+            concurrency_queue_timeout_ms,
             &normalized_proxy_rounds,
         ) {
             *self.load_balancing_mode.lock() = previous_mode;
             *self.proxy_pair_rotation_interval_minutes.lock() = previous_interval_minutes;
             *self.proxy_pair_rotation_group_size.lock() = previous_group_size;
+            *self.max_global_concurrency.lock() = previous_max_global_concurrency;
+            *self.max_concurrency_queue_size.lock() = previous_max_concurrency_queue_size;
+            *self.concurrency_queue_timeout_ms.lock() = previous_concurrency_queue_timeout_ms;
             *self.proxy_pair_rotation_proxy_rounds.lock() = previous_proxy_rounds;
             *self.proxy_pair_rotation_proxy_round_keys.lock() = previous_proxy_round_keys;
             *self.pair_rotation_started_at.lock() = previous_rotation_started_at;
             *self.proxy_pair_rotation_rr_cursor.lock() = previous_rr_cursor;
+            *self.global_request_limiter.lock() = previous_global_request_limiter;
             return Err(err);
         }
 
         tracing::info!(
-            "负载均衡模式已设置为: {}，轮换周期: {} 分钟，每轮账号数: {}，代理轮次数: {}",
+            "请求模式配置已更新: mode={}, rotation={}m, group_size={}, max_global_concurrency={}, queue_size={}, queue_timeout_ms={}, proxy_rounds={}",
             mode,
             proxy_pair_rotation_interval_minutes,
             proxy_pair_rotation_group_size,
+            max_global_concurrency,
+            max_concurrency_queue_size,
+            concurrency_queue_timeout_ms,
             normalized_proxy_rounds.len()
         );
         Ok(())
@@ -2699,6 +2918,9 @@ impl MultiTokenManager {
             mode,
             self.current_proxy_pair_rotation_interval_minutes(),
             self.current_proxy_pair_rotation_group_size(),
+            self.current_max_global_concurrency(),
+            self.current_max_concurrency_queue_size(),
+            self.current_concurrency_queue_timeout_ms(),
             self.current_proxy_pair_rotation_proxy_rounds(),
         )
     }
@@ -3074,7 +3296,7 @@ mod tests {
         ));
         std::fs::write(
             &config_path,
-            r#"{"loadBalancingMode":"priority","proxyPairRotationIntervalMinutes":60,"proxyPairRotationGroupSize":2}"#,
+            r#"{"loadBalancingMode":"priority","proxyPairRotationIntervalMinutes":60,"proxyPairRotationGroupSize":2,"maxGlobalConcurrency":20,"maxConcurrencyQueueSize":50,"concurrencyQueueTimeoutMs":5000}"#,
         )
         .unwrap();
 
@@ -3093,6 +3315,9 @@ mod tests {
                 LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION.to_string(),
                 30,
                 4,
+                24,
+                60,
+                7000,
                 vec![vec!["http://127.0.0.1:8001".to_string()]],
             )
             .unwrap();
@@ -3104,12 +3329,18 @@ mod tests {
         );
         assert_eq!(persisted.proxy_pair_rotation_interval_minutes, 30);
         assert_eq!(persisted.proxy_pair_rotation_group_size, 4);
+        assert_eq!(persisted.max_global_concurrency, 24);
+        assert_eq!(persisted.max_concurrency_queue_size, 60);
+        assert_eq!(persisted.concurrency_queue_timeout_ms, 7000);
         assert_eq!(
             persisted.proxy_pair_rotation_proxy_rounds,
             vec![vec!["http://127.0.0.1:8001".to_string()]]
         );
         assert_eq!(manager.get_proxy_pair_rotation_interval_minutes(), 30);
         assert_eq!(manager.get_proxy_pair_rotation_group_size(), 4);
+        assert_eq!(manager.get_max_global_concurrency(), 24);
+        assert_eq!(manager.get_max_concurrency_queue_size(), 60);
+        assert_eq!(manager.get_concurrency_queue_timeout_ms(), 7000);
         assert_eq!(
             manager.get_proxy_pair_rotation_proxy_rounds(),
             vec![vec!["http://127.0.0.1:8001".to_string()]]
@@ -3135,6 +3366,9 @@ mod tests {
                 LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION.to_string(),
                 0,
                 2,
+                20,
+                50,
+                5000,
                 Vec::new(),
             )
             .unwrap_err()
@@ -3146,11 +3380,42 @@ mod tests {
                 LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION.to_string(),
                 60,
                 0,
+                20,
+                50,
+                5000,
                 Vec::new(),
             )
             .unwrap_err()
             .to_string();
         assert!(group_size_err.contains("每轮账号数"));
+
+        let concurrency_err = manager
+            .set_load_balancing_settings(
+                LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION.to_string(),
+                60,
+                2,
+                0,
+                50,
+                5000,
+                Vec::new(),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(concurrency_err.contains("全局最大并发"));
+
+        let timeout_err = manager
+            .set_load_balancing_settings(
+                LOAD_BALANCING_MODE_PROXY_PAIR_ROTATION.to_string(),
+                60,
+                2,
+                20,
+                50,
+                0,
+                Vec::new(),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(timeout_err.contains("排队超时"));
     }
 
     #[test]

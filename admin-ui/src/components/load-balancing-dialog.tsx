@@ -55,6 +55,9 @@ export function LoadBalancingDialog({ open, onOpenChange }: LoadBalancingDialogP
   const [mode, setMode] = useState<LoadBalancingMode>('priority')
   const [intervalMinutes, setIntervalMinutes] = useState('60')
   const [groupSize, setGroupSize] = useState('2')
+  const [maxGlobalConcurrency, setMaxGlobalConcurrency] = useState('20')
+  const [maxQueueSize, setMaxQueueSize] = useState('50')
+  const [queueTimeoutMs, setQueueTimeoutMs] = useState('5000')
   const [rotationProxyRounds, setRotationProxyRounds] = useState<string[][]>([])
   const [proxyPresets, setProxyPresets] = useState<ProxyPreset[]>([])
   const [proxyPresetsLoading, setProxyPresetsLoading] = useState(false)
@@ -70,6 +73,9 @@ export function LoadBalancingDialog({ open, onOpenChange }: LoadBalancingDialogP
     setMode(data?.mode || 'priority')
     setIntervalMinutes(String(data?.proxyPairRotationIntervalMinutes || 60))
     setGroupSize(String(data?.proxyPairRotationGroupSize || 2))
+    setMaxGlobalConcurrency(String(data?.maxGlobalConcurrency || 20))
+    setMaxQueueSize(String(data?.maxConcurrencyQueueSize ?? 50))
+    setQueueTimeoutMs(String(data?.concurrencyQueueTimeoutMs || 5000))
     setRotationProxyRounds(
       normalizeProxyRounds(data?.proxyPairRotationProxyRounds || [])
     )
@@ -122,6 +128,9 @@ export function LoadBalancingDialog({ open, onOpenChange }: LoadBalancingDialogP
 
     const parsedIntervalMinutes = parseInt(intervalMinutes, 10)
     const parsedGroupSize = parseInt(groupSize, 10)
+    const parsedMaxGlobalConcurrency = parseInt(maxGlobalConcurrency, 10)
+    const parsedMaxQueueSize = parseInt(maxQueueSize, 10)
+    const parsedQueueTimeoutMs = parseInt(queueTimeoutMs, 10)
 
     if (Number.isNaN(parsedIntervalMinutes) || parsedIntervalMinutes <= 0) {
       toast.error('轮换分钟数必须是大于 0 的整数')
@@ -133,6 +142,21 @@ export function LoadBalancingDialog({ open, onOpenChange }: LoadBalancingDialogP
       return
     }
 
+    if (Number.isNaN(parsedMaxGlobalConcurrency) || parsedMaxGlobalConcurrency <= 0) {
+      toast.error('总并发必须是大于 0 的整数')
+      return
+    }
+
+    if (Number.isNaN(parsedMaxQueueSize) || parsedMaxQueueSize < 0) {
+      toast.error('排队上限必须是大于等于 0 的整数')
+      return
+    }
+
+    if (Number.isNaN(parsedQueueTimeoutMs) || parsedQueueTimeoutMs <= 0) {
+      toast.error('排队超时必须是大于 0 的整数毫秒')
+      return
+    }
+
     const parsedRotationProxyRounds = normalizeProxyRounds(rotationProxyRounds)
 
     mutate(
@@ -140,6 +164,9 @@ export function LoadBalancingDialog({ open, onOpenChange }: LoadBalancingDialogP
         mode,
         proxyPairRotationIntervalMinutes: parsedIntervalMinutes,
         proxyPairRotationGroupSize: parsedGroupSize,
+        maxGlobalConcurrency: parsedMaxGlobalConcurrency,
+        maxConcurrencyQueueSize: parsedMaxQueueSize,
+        concurrencyQueueTimeoutMs: parsedQueueTimeoutMs,
         proxyPairRotationProxyRounds: parsedRotationProxyRounds,
       },
       {
@@ -160,7 +187,7 @@ export function LoadBalancingDialog({ open, onOpenChange }: LoadBalancingDialogP
         <DialogHeader>
           <DialogTitle>请求模式配置</DialogTitle>
           <DialogDescription>
-            可配置请求模式，以及代理轮换模式的轮换周期、自动分组和自定义轮次。
+            可配置请求模式、全局总并发，以及代理轮换模式的轮换周期、自动分组和自定义轮次。
           </DialogDescription>
         </DialogHeader>
 
@@ -206,6 +233,51 @@ export function LoadBalancingDialog({ open, onOpenChange }: LoadBalancingDialogP
                 min="1"
                 value={groupSize}
                 onChange={(e) => setGroupSize(e.target.value)}
+                disabled={isLoading || isPending}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-2">
+              <label htmlFor="maxGlobalConcurrency" className="text-sm font-medium">
+                总并发上限
+              </label>
+              <Input
+                id="maxGlobalConcurrency"
+                type="number"
+                min="1"
+                value={maxGlobalConcurrency}
+                onChange={(e) => setMaxGlobalConcurrency(e.target.value)}
+                disabled={isLoading || isPending}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="maxQueueSize" className="text-sm font-medium">
+                排队上限
+              </label>
+              <Input
+                id="maxQueueSize"
+                type="number"
+                min="0"
+                value={maxQueueSize}
+                onChange={(e) => setMaxQueueSize(e.target.value)}
+                disabled={isLoading || isPending}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="queueTimeoutMs" className="text-sm font-medium">
+                排队超时（毫秒）
+              </label>
+              <Input
+                id="queueTimeoutMs"
+                type="number"
+                min="1"
+                step="100"
+                value={queueTimeoutMs}
+                onChange={(e) => setQueueTimeoutMs(e.target.value)}
                 disabled={isLoading || isPending}
               />
             </div>
@@ -308,6 +380,10 @@ export function LoadBalancingDialog({ open, onOpenChange }: LoadBalancingDialogP
               </div>
             )}
           </div>
+
+          <p className="text-xs text-muted-foreground">
+            总并发限制对所有上游请求生效。超过并发上限后，请求会先进入等待队列；队列满或等待超时会直接返回 429。
+          </p>
 
           <p className="text-xs text-muted-foreground">
             轮换参数仅在“代理轮换模式”下生效。若未配置轮次代理，则按生效代理账号排序后自动分组轮换，且当前轮次不足时会按优先级从后备账号自动补位。

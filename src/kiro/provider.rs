@@ -15,7 +15,9 @@ use uuid::Uuid;
 use crate::http_client::{ProxyConfig, build_client};
 use crate::kiro::machine_id;
 use crate::kiro::model::credentials::KiroCredentials;
-use crate::kiro::token_manager::{CallContext, MultiTokenManager};
+use crate::kiro::token_manager::{
+    CallContext, GlobalRequestPermit, MultiTokenManager,
+};
 use crate::model::config::TlsBackend;
 use parking_lot::Mutex;
 
@@ -36,6 +38,17 @@ pub struct KiroProvider {
     client_cache: Mutex<HashMap<Option<ProxyConfig>, Client>>,
     /// TLS 后端配置
     tls_backend: TlsBackend,
+}
+
+pub struct ReservedUpstreamResponse {
+    pub response: reqwest::Response,
+    pub permit: GlobalRequestPermit,
+}
+
+impl ReservedUpstreamResponse {
+    fn new(response: reqwest::Response, permit: GlobalRequestPermit) -> Self {
+        Self { response, permit }
+    }
 }
 
 impl KiroProvider {
@@ -254,7 +267,7 @@ impl KiroProvider {
     ///
     /// # Returns
     /// 返回原始的 HTTP Response，不做解析
-    pub async fn call_api(&self, request_body: &str) -> anyhow::Result<reqwest::Response> {
+    pub async fn call_api(&self, request_body: &str) -> anyhow::Result<ReservedUpstreamResponse> {
         self.call_api_with_retry(request_body, false).await
     }
 
@@ -271,7 +284,10 @@ impl KiroProvider {
     ///
     /// # Returns
     /// 返回原始的 HTTP Response，调用方负责处理流式数据
-    pub async fn call_api_stream(&self, request_body: &str) -> anyhow::Result<reqwest::Response> {
+    pub async fn call_api_stream(
+        &self,
+        request_body: &str,
+    ) -> anyhow::Result<ReservedUpstreamResponse> {
         self.call_api_with_retry(request_body, true).await
     }
 
@@ -284,15 +300,19 @@ impl KiroProvider {
     ///
     /// # Returns
     /// 返回原始的 HTTP Response
-    pub async fn call_mcp(&self, request_body: &str) -> anyhow::Result<reqwest::Response> {
+    pub async fn call_mcp(&self, request_body: &str) -> anyhow::Result<ReservedUpstreamResponse> {
         self.call_mcp_with_retry(request_body).await
     }
 
     /// 内部方法：带重试逻辑的 MCP API 调用
-    async fn call_mcp_with_retry(&self, request_body: &str) -> anyhow::Result<reqwest::Response> {
+    async fn call_mcp_with_retry(
+        &self,
+        request_body: &str,
+    ) -> anyhow::Result<ReservedUpstreamResponse> {
         let total_credentials = self.token_manager.total_count();
         let max_retries = (total_credentials * MAX_RETRIES_PER_CREDENTIAL).min(MAX_TOTAL_RETRIES);
         let mut last_error: Option<anyhow::Error> = None;
+        let request_permit = self.token_manager.acquire_global_request_permit().await?;
 
         for attempt in 0..max_retries {
             // 获取调用上下文
@@ -344,7 +364,7 @@ impl KiroProvider {
             // 成功响应
             if status.is_success() {
                 self.token_manager.report_success(ctx.id);
-                return Ok(response);
+                return Ok(ReservedUpstreamResponse::new(response, request_permit));
             }
 
             // 失败响应
@@ -419,11 +439,12 @@ impl KiroProvider {
         &self,
         request_body: &str,
         is_stream: bool,
-    ) -> anyhow::Result<reqwest::Response> {
+    ) -> anyhow::Result<ReservedUpstreamResponse> {
         let total_credentials = self.token_manager.total_count();
         let max_retries = (total_credentials * MAX_RETRIES_PER_CREDENTIAL).min(MAX_TOTAL_RETRIES);
         let mut last_error: Option<anyhow::Error> = None;
         let api_type = if is_stream { "流式" } else { "非流式" };
+        let request_permit = self.token_manager.acquire_global_request_permit().await?;
 
         // 尝试从请求体中提取模型信息
         let model = Self::extract_model_from_request(request_body);
@@ -479,7 +500,7 @@ impl KiroProvider {
             // 成功响应
             if status.is_success() {
                 self.token_manager.report_success(ctx.id);
-                return Ok(response);
+                return Ok(ReservedUpstreamResponse::new(response, request_permit));
             }
 
             // 失败响应：读取 body 用于日志/错误信息

@@ -58,6 +58,9 @@ export interface LoadBalancingConfigResponse {
   mode: LoadBalancingMode
   proxyPairRotationIntervalMinutes: number
   proxyPairRotationGroupSize: number
+  maxGlobalConcurrency: number
+  maxConcurrencyQueueSize: number
+  concurrencyQueueTimeoutMs: number
   proxyPairRotationProxyRounds: string[][]
 }
 
@@ -65,6 +68,9 @@ export interface SetLoadBalancingConfigRequest {
   mode: LoadBalancingMode
   proxyPairRotationIntervalMinutes?: number
   proxyPairRotationGroupSize?: number
+  maxGlobalConcurrency?: number
+  maxConcurrencyQueueSize?: number
+  concurrencyQueueTimeoutMs?: number
   proxyPairRotationProxyRounds?: string[][]
 }
 

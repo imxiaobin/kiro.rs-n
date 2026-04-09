@@ -114,6 +114,18 @@ pub struct Config {
     #[serde(default = "default_proxy_pair_rotation_group_size")]
     pub proxy_pair_rotation_group_size: usize,
 
+    /// 全局最大并发请求数
+    #[serde(default = "default_max_global_concurrency")]
+    pub max_global_concurrency: usize,
+
+    /// 全局并发等待队列长度
+    #[serde(default = "default_max_concurrency_queue_size")]
+    pub max_concurrency_queue_size: usize,
+
+    /// 全局并发排队超时（毫秒）
+    #[serde(default = "default_concurrency_queue_timeout_ms")]
+    pub concurrency_queue_timeout_ms: u64,
+
     /// 代理轮换模式按代理预设名的自定义轮次（可选）
     /// 示例：[["美国代理-圣何塞","美国代理-盐湖城"],["美国随机1","美国随机2"]]
     #[serde(default = "default_proxy_pair_rotation_proxy_rounds")]
@@ -175,6 +187,18 @@ fn default_proxy_pair_rotation_group_size() -> usize {
     2
 }
 
+fn default_max_global_concurrency() -> usize {
+    20
+}
+
+fn default_max_concurrency_queue_size() -> usize {
+    50
+}
+
+fn default_concurrency_queue_timeout_ms() -> u64 {
+    5_000
+}
+
 fn default_proxy_pair_rotation_proxy_rounds() -> Vec<Vec<String>> {
     Vec::new()
 }
@@ -204,6 +228,9 @@ impl Default for Config {
             proxy_pair_rotation_interval_minutes:
                 default_proxy_pair_rotation_interval_minutes(),
             proxy_pair_rotation_group_size: default_proxy_pair_rotation_group_size(),
+            max_global_concurrency: default_max_global_concurrency(),
+            max_concurrency_queue_size: default_max_concurrency_queue_size(),
+            concurrency_queue_timeout_ms: default_concurrency_queue_timeout_ms(),
             proxy_pair_rotation_proxy_rounds: default_proxy_pair_rotation_proxy_rounds(),
             proxy_presets: Vec::new(),
             config_path: None,

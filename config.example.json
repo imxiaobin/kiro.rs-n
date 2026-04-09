@@ -8,5 +8,8 @@
   "loadBalancingMode": "proxy_pair_rotation",
   "proxyPairRotationIntervalMinutes": 60,
   "proxyPairRotationGroupSize": 2,
+  "maxGlobalConcurrency": 20,
+  "maxConcurrencyQueueSize": 50,
+  "concurrencyQueueTimeoutMs": 5000,
   "proxyPairRotationProxyRounds": [["美国代理-圣何塞", "美国代理-盐湖城"], ["美国随机1", "美国随机2"]]
 }

@@ -394,6 +394,9 @@ impl AdminService {
             proxy_pair_rotation_group_size: self
                 .token_manager
                 .get_proxy_pair_rotation_group_size(),
+            max_global_concurrency: self.token_manager.get_max_global_concurrency(),
+            max_concurrency_queue_size: self.token_manager.get_max_concurrency_queue_size(),
+            concurrency_queue_timeout_ms: self.token_manager.get_concurrency_queue_timeout_ms(),
             proxy_pair_rotation_proxy_rounds: self
                 .token_manager
                 .get_proxy_pair_rotation_proxy_rounds(),
@@ -423,6 +426,12 @@ impl AdminService {
                 }),
                 req.proxy_pair_rotation_group_size
                     .unwrap_or_else(|| self.token_manager.get_proxy_pair_rotation_group_size()),
+                req.max_global_concurrency
+                    .unwrap_or_else(|| self.token_manager.get_max_global_concurrency()),
+                req.max_concurrency_queue_size
+                    .unwrap_or_else(|| self.token_manager.get_max_concurrency_queue_size()),
+                req.concurrency_queue_timeout_ms
+                    .unwrap_or_else(|| self.token_manager.get_concurrency_queue_timeout_ms()),
                 req.proxy_pair_rotation_proxy_rounds.unwrap_or_else(|| {
                     self.token_manager.get_proxy_pair_rotation_proxy_rounds()
                 }),

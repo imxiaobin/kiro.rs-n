@@ -524,9 +524,9 @@ async fn call_mcp_api(
 
     tracing::debug!("MCP request: {}", request_body);
 
-    let response = provider.call_mcp(&request_body).await?;
+    let reserved = provider.call_mcp(&request_body).await?;
 
-    let body = response.text().await?;
+    let body = reserved.response.text().await?;
     tracing::debug!("MCP response: {}", body);
 
     let mcp_response: McpResponse = serde_json::from_str(&body)?;
